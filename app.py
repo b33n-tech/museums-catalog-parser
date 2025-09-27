@@ -2,56 +2,72 @@
 import re
 import pandas as pd
 import streamlit as st
+import requests
 
 st.set_page_config(page_title="Catalogue Parser", layout="wide")
-
 st.title("📚 Catalogue OCR → Tableau")
 
-uploaded_file = st.file_uploader("Dépose ton fichier OCR (.txt)", type=["txt"])
+st.write("Choisis une méthode pour fournir le texte OCR :")
 
-if uploaded_file is not None:
-    text = uploaded_file.read().decode("utf-8")
+option = st.radio(
+    "Source du texte OCR",
+    ["📂 Uploader un fichier .txt", "🌍 Coller un lien vers un .txt en ligne"]
+)
 
+text = None
+
+# --- OPTION 1 : Upload fichier ---
+if option == "📂 Uploader un fichier .txt":
+    uploaded_file = st.file_uploader("Dépose ton fichier OCR (.txt)", type=["txt"])
+    if uploaded_file is not None:
+        text = uploaded_file.read().decode("utf-8")
+
+# --- OPTION 2 : URL du fichier texte ---
+elif option == "🌍 Coller un lien vers un .txt en ligne":
+    url = st.text_input("Entre l'URL directe vers un fichier texte (.txt)")
+    if url:
+        try:
+            response = requests.get(url)
+            response.raise_for_status()
+            text = response.text
+            st.success("Fichier récupéré avec succès ✅")
+        except Exception as e:
+            st.error(f"Erreur lors du téléchargement : {e}")
+
+# --- Parsing seulement si texte dispo ---
+if text:
     # --- Nettoyage rapide du texte ---
     text = re.sub(r"\s+", " ", text)  # réduire espaces multiples
     text = re.sub(r"—", "-", text)    # normaliser tirets
     text = text.replace("??", "Inconnu")
 
     # --- Découpage des notices par numéro ---
-    # Exemple : "589 Buste de Dionysos..."
     entries = re.split(r"\s(?=\d{3,4}\s)", text)
 
     data = []
     for entry in entries:
         entry = entry.strip()
         if not entry or not re.match(r"^\d{3,4}", entry):
-            continue  # on saute les bouts sans numéro
+            continue
 
         # --- Extraction des champs principaux ---
-        num_match = re.match(r"^(\d{3,4})", entry)
-        numero = num_match.group(1) if num_match else ""
+        numero = re.match(r"^(\d{3,4})", entry).group(1)
 
-        # Objet : jusqu'à la première phrase complète ou saut
         objet_match = re.search(r"^\d{3,4}\s+(.*?)(?=(?:IVe|Ve|IIIe|IIe|Ie)\s*s\.)", entry)
         objet = objet_match.group(1).strip() if objet_match else ""
 
-        # Datation
         datation_match = re.search(r"((?:[IVX]{1,3}e|\d+)(?:\s*moitié)?\s*s\.?\s*av\.?\s*J\.-C\.)", entry)
         datation = datation_match.group(1) if datation_match else ""
 
-        # Matière
         matiere_match = re.search(r"-\s*(Marbre|Bronze|Terre cuite)", entry, re.IGNORECASE)
         matiere = matiere_match.group(1) if matiere_match else ""
 
-        # Provenance
         provenance_match = re.search(r"-\s*([^-.]+?)\s*-\s*[^-.]+", entry)
         provenance = provenance_match.group(1).strip() if provenance_match else ""
 
-        # Lieu actuel (musée / ville)
         lieu_match = re.search(r"-\s*([A-Z][^.;]+)", entry)
         lieu = lieu_match.group(1).strip() if lieu_match else ""
 
-        # Références = tout ce qui suit "Cf." ou après le dernier point
         refs_match = re.search(r"(Cf\..+)$", entry)
         refs = refs_match.group(1).strip() if refs_match else ""
 
